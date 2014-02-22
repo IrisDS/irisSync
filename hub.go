@@ -8,15 +8,20 @@ import (
 	"github.com/likexian/simplejson"
 )
 
-type SyncBoard struct {
+type Command struct {
+	Cmd    string `json:"cmd,omitempty"`
+	Params string `json:"params,omitempty"`
+}
+
+type Iris struct {
 	hub   wsHub.WsHub
 	admin *wsHub.Client
 	kill  chan bool
 }
 
 // Construct
-func NewSyncBoard() SyncBoard {
-	s := SyncBoard{
+func NewIris() Iris {
+	s := Iris{
 		hub:  wsHub.NewHub(),
 		kill: make(chan bool),
 	}
@@ -24,21 +29,22 @@ func NewSyncBoard() SyncBoard {
 }
 
 // Run loop
-func (s SyncBoard) Run() {
+func (s Iris) Run() {
 
 }
 
 // Stop
-func (s SyncBoard) Kill() {
+func (s Iris) Kill() {
 	s.kill <- true
 }
 
-// Client screen connection
-func (s SyncBoard) IrisClient(w http.ResponseWriter, r *http.Request) {
+// Client screen websocket connection
+func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Got new screen client")
 	client, err := wsHub.NewClient(w, r)
 	if err != nil {
 		fmt.Println("Error getting websocket connection:", err)
+		return
 	}
 
 	s.hub.RegisterClient(client)
@@ -48,6 +54,7 @@ func (s SyncBoard) IrisClient(w http.ResponseWriter, r *http.Request) {
 		s.hub.UnregisterClient(client)
 	}()
 
+	// Client run loop
 	for {
 		cmd, err := client.Read()
 		if err != nil {
@@ -60,16 +67,22 @@ func (s SyncBoard) IrisClient(w http.ResponseWriter, r *http.Request) {
 			cmdString, err := cmdjson.Get("cmd").String()
 			if err != nil {
 				fmt.Println("Invalid command from screen")
+				client.WriteString("ERROR")
 			} else {
 				switch cmdString {
+				// pause playback
 				case "PAUSE":
-					// pause playback //
-				case "PLAY":
-					// start/resume playback
+					break
+				// start/resume playback @
 				case "PLAY_AT":
-					// start/resume playback @
-				case "MAKE_ADMIN":
-					// upgrade connection to admin
+					if cmdjson.Exists("at") {
+						playAt, _ := cmdjson.Get("at").String()
+						s.hub.Broadcast(Command{Cmd: "PLAY_AT", Params: playAt})
+					} else {
+						fmt.Println("Invalid play @ param")
+						client.WriteJSON(Command{"INVALID_PLAY_AT"})
+					}
+					break
 				}
 			}
 		}
@@ -77,13 +90,34 @@ func (s SyncBoard) IrisClient(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Admin connection
-func (s SyncBoard) IrisAdmin(w http.ResponseWriter, r *http.Request) {
+// Admin websocket connection
+func (s Iris) IrisAdmin(w http.ResponseWriter, r *http.Request) {
+	admin, err := wsHub.NewClient(w, r)
+	if err != nil {
+		fmt.Println("Couldnt get websocket connection")
+		return
+	}
 
+	s.admin = admin
+	s.hub.RegisterClient(admin)
+	go s.admin.Start()
+
+	for {
+		cmd, err := s.admin.ReadString()
+		if err != nil {
+			fmt.Println("Couldnt get admin command")
+			continue
+		}
+
+		switch cmd {
+		case "":
+			break
+		}
+	}
 }
 
 // Handlers
-func (s SyncBoard) UpgradeToAdmin(client *wsHub.Client) {
+func (s Iris) UpgradeToAdmin(client *wsHub.Client) {
 	s.admin = admin
 
 	defer func() {
