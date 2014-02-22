@@ -63,7 +63,7 @@ func (s SyncBoard) IrisClient(w http.ResponseWriter, r *http.Request) {
 			} else {
 				switch cmdString {
 				case "PAUSE":
-					// pause playback
+					// pause playback //
 				case "PLAY":
 					// start/resume playback
 				case "PLAY_AT":
