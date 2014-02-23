@@ -1,4 +1,4 @@
-package irisSync
+package iris
 
 import (
 	"io"
@@ -10,7 +10,7 @@ import (
 /* based on:
 * https://github.com/ljgww/web_server_example_in_Go_-golang-
  */
-func upload(w http.ResponseWriter, r *http.Request) {
+func (i Iris) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		log.Fatal("wrong request method")
 	}
