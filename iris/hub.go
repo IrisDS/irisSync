@@ -14,9 +14,10 @@ type Command struct {
 }
 
 type Iris struct {
-	hub   wsHub.WsHub
-	admin *wsHub.Client
-	kill  chan bool
+	clients map[string]*wsHub.Client
+	hub     wsHub.WsHub
+	admin   *wsHub.Client
+	kill    chan bool
 }
 
 // Construct
@@ -70,9 +71,12 @@ func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
 				client.WriteString("ERROR")
 			} else {
 				switch cmdString {
+
 				// pause playback
 				case "PAUSE":
+					s.hub.Broadcast(Command{Cmd: "PAUSE"})
 					break
+
 				// start/resume playback @
 				case "PLAY_AT":
 					if cmdjson.Exists("at") {
@@ -103,39 +107,40 @@ func (s Iris) IrisAdmin(w http.ResponseWriter, r *http.Request) {
 	go s.admin.Start()
 
 	for {
-		cmd, err := s.admin.ReadString()
+		cmdbyte, err := s.admin.Read()
 		if err != nil {
 			fmt.Println("Couldnt get admin command")
 			continue
 		}
 
-		switch cmd {
-		case "":
-			break
-		}
-	}
-}
-
-// Handlers
-func (s Iris) UpgradeToAdmin(client *wsHub.Client) {
-	s.admin = admin
-
-	defer func() {
-		fmt.Println("Upgrading connection to admin")
-		s.hub.UnregisterClient(s.admin)
-	}()
-
-	for {
-		cmd, err := s.admin.ReadString()
+		cmdjson, err := simplejson.Loads(string(cmdbyte))
 		if err != nil {
-			break
+			fmt.Println("Coudnt parse admin command")
+			continue
 		}
 
-		switch cmd {
+		if cmdjson.Exists("cmd") {
+			switch cmd {
 
+			// Get the devices to load a vid
+			case "LOAD":
+				var url string
+				if cmdjson.Exists("url") {
+					url, _ = cmdjson.Get("url").String()
+				}
+				s.hub.BroadcastJSON(Command{Cmd: "LOAD", Params: url})
+				break
+
+			// Start playback at a given point default 0
+			case "PLAY_AT":
+
+				break
+
+			}
+		} else {
+			fmt.Println("Invalid command format")
 		}
 	}
-
 }
 
 // Utils
