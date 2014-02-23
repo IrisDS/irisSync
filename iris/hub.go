@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/jsimnz/wsHub"
 	"github.com/likexian/simplejson"
 )
@@ -13,8 +14,14 @@ type Command struct {
 	Params string `json:"params,omitempty"`
 }
 
+// maybe remove
+type Screen struct {
+	Image string
+	ws    *wsHub.Client
+}
+
 type Iris struct {
-	clients map[string]*wsHub.Client
+	clients map[string]*Screen
 	hub     wsHub.WsHub
 	admin   *wsHub.Client
 	kill    chan bool
@@ -40,14 +47,26 @@ func (s Iris) Kill() {
 }
 
 // Client screen websocket connection
-func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
+func (s Iris) HandleScreen(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Got new screen client")
+
+	//Convert to ws
 	client, err := wsHub.NewClient(w, r)
 	if err != nil {
 		fmt.Println("Error getting websocket connection:", err)
 		return
 	}
 
+	//Get client ID
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// Save screen (id->ws conn)
+	screen := &Screen{ws: client}
+	s.clients[id] = screen
+
+	// Register client with hub
+	// Start run loop
 	s.hub.RegisterClient(client)
 	go client.Start()
 	defer func() {
@@ -55,7 +74,7 @@ func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
 		s.hub.UnregisterClient(client)
 	}()
 
-	// Client run loop
+	// Client listen loop
 	for {
 		cmd, err := client.Read()
 		if err != nil {
@@ -74,17 +93,16 @@ func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
 
 				// pause playback
 				case "PAUSE":
-					s.hub.Broadcast(Command{Cmd: "PAUSE"})
+					s.hub.BroadcastJSON(Command{Cmd: "PAUSE"})
 					break
 
 				// start/resume playback @
 				case "PLAY_AT":
 					if cmdjson.Exists("at") {
 						playAt, _ := cmdjson.Get("at").String()
-						s.hub.Broadcast(Command{Cmd: "PLAY_AT", Params: playAt})
+						s.hub.BroadcastJSON(Command{Cmd: "PLAY_AT", Params: playAt})
 					} else {
 						fmt.Println("Invalid play @ param")
-						client.WriteJSON(Command{"INVALID_PLAY_AT"})
 					}
 					break
 				}
@@ -95,7 +113,8 @@ func (s Iris) IrisClient(w http.ResponseWriter, r *http.Request) {
 }
 
 // Admin websocket connection
-func (s Iris) IrisAdmin(w http.ResponseWriter, r *http.Request) {
+func (s Iris) HandleAdmin(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Got new admin connection")
 	admin, err := wsHub.NewClient(w, r)
 	if err != nil {
 		fmt.Println("Couldnt get websocket connection")
@@ -120,6 +139,8 @@ func (s Iris) IrisAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if cmdjson.Exists("cmd") {
+			cmd, _ := cmdjson.Get("cmd").String()
+
 			switch cmd {
 
 			// Get the devices to load a vid
@@ -128,14 +149,19 @@ func (s Iris) IrisAdmin(w http.ResponseWriter, r *http.Request) {
 				if cmdjson.Exists("url") {
 					url, _ = cmdjson.Get("url").String()
 				}
-				s.hub.BroadcastJSON(Command{Cmd: "LOAD", Params: url})
+				for id := range s.clients {
+					s.clients[id].ws.WriteJSON(Command{Cmd: "LOAD", Params: url + "/" + id})
+				}
 				break
 
 			// Start playback at a given point default 0
 			case "PLAY_AT":
-
-				break
-
+				if cmdjson.Exists("at") {
+					at, _ := cmdjson.Get("at").String()
+					s.hub.BroadcastJSON(Command{Cmd: "PLAY_AT", Params: at})
+				} else {
+					fmt.Println("Invalid @ param for PLAY_AT")
+				}
 			}
 		} else {
 			fmt.Println("Invalid command format")
