@@ -38,7 +38,7 @@ func NewIris() Iris {
 
 // Run loop
 func (s Iris) Run() {
-
+	// watch for all device submissions
 }
 
 // Stop
